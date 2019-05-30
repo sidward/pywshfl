@@ -5,9 +5,6 @@ import sigpy      as sp
 import sigpy.mri  as mr
 import sigpy.plot as pl
 
-# Look at:
-# sigpy.alg.GradientMethod
-
 class WaveShuffling(sp.app.App):
 
   def _construct_AHb(self):
@@ -57,7 +54,7 @@ class WaveShuffling(sp.app.App):
       x = np.expand_dims(x, axis=0)
     return x
 
-  def __init__(self, rdr, tbl, mps, psf, phi, cps=False, lmb=1e-3, mit=30, alp=1, tol=1e-3, dev=-1):
+  def __init__(self, rdr, tbl, mps, psf, phi, cps=False, lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
 
     self.cpu = -1
     self.max_dims = 8
@@ -67,6 +64,7 @@ class WaveShuffling(sp.app.App):
     with device:
       self.rdr = self.xp.array(rdr).astype(self.xp.int32)
       self.tbl = self.xp.array(tbl)
+      self.tbl = self.tbl/self.xp.max(self.xp.abs(self.tbl))
       self.mps = self.xp.array(self._broadcast_check(mps))
       self.psf = self.xp.array(self._broadcast_check(psf))
       self.phi = self.xp.array(self._broadcast_check(phi))
@@ -108,6 +106,8 @@ class WaveShuffling(sp.app.App):
       self.res   = 0 * self.AHb
       self.AHA   = self.W * self.E.H * self.R.H * self.Fx.H * self.Psf.H * self.Fyz.H * self.K * \
                    self.Fyz * self.Psf * self.Fx * self.R * self.E * self.W.H
+      self.mxevl = sp.app.MaxEig(self.AHA, self.xp.complex, device=dev).run()
+      self.alp   = self.alp/self.mxevl
       self.gradf = lambda x: self.AHA(x) - self.AHb
       self.proxg = sp.prox.L1Reg(self.res.shape, lmb)
 
@@ -116,6 +116,3 @@ class WaveShuffling(sp.app.App):
         
     def _output(self):
         return self.W.H(self.res)
-
-#    def _summarize():
-#    def objective();

@@ -11,7 +11,7 @@ import sigpy.plot as pl
 class WaveShuffling(sp.app.App):
 
   def _construct_AHb(self):
-    x = self.xp.zeros((1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx)).astype(self.xp.complex64)
+    x = self.xp.zeros((1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx)).astype(self.xp.complex)
     PhiH = self.phi.squeeze().conj()
     if (len(PhiH.shape) == 1):
       PhiH = self.xp.reshape(PhiH, (1, PhiH.size))
@@ -22,9 +22,9 @@ class WaveShuffling(sp.app.App):
     self.AHb = self.W(self.E.H(self.R.H(self.Fx.H(self.Psf.H(self.Fyz.H(x))))))
 
   def _construct_kernel(self):
-    self.kernel = self.xp.zeros([self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1]).astype(self.xp.complex64)
-    vec = self.xp.zeros((self.tk, 1)).astype(self.xp.complex64)
-    mask = self.xp.zeros([self.sy, self.sz, self.tf]).astype(self.xp.complex64)
+    self.kernel = self.xp.zeros([self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1]).astype(self.xp.complex)
+    vec = self.xp.zeros((self.tk, 1)).astype(self.xp.complex)
+    mask = self.xp.zeros([self.sy, self.sz, self.tf]).astype(self.xp.complex)
 
     phi = self.phi.squeeze().T
     if (len(phi.shape) == 1):
@@ -57,7 +57,7 @@ class WaveShuffling(sp.app.App):
       x = np.expand_dims(x, axis=0)
     return x
 
-  def __init__(self, rdr, tbl, mps, psf, phi, cps, lmb, mit, dev):
+  def __init__(self, rdr, tbl, mps, psf, phi, cps=False, lmb=1e-3, mit=30, alp=1, tol=1e-3, dev=-1):
 
     self.cpu = -1
     self.max_dims = 8
@@ -73,6 +73,8 @@ class WaveShuffling(sp.app.App):
       self.cps = cps # Caipi-Shuffling flag.
       self.lmb = lmb # Lambda.
       self.mit = mit # Max-Iter
+      self.alp = alp # Step size.
+      self.tol = tol # Tolerance.
 
       self.wx = self.psf.shape[7]
       self.sx = self.mps.shape[7]
@@ -89,33 +91,31 @@ class WaveShuffling(sp.app.App):
 
       self._construct_kernel()
 
+      self.W      = sp.linop.Wavelet([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], axes=wavelet_axes)
       self.E      = sp.linop.Multiply([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], self.mps)
       self.R      = sp.linop.Resize([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
                                     [1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.sx])
       self.Fx     = sp.linop.FFT([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(7,))
       self.Psf    = sp.linop.Multiply([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.psf)
       self.Fyz    = sp.linop.FFT([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(5, 6))
-      self.K      = sp.linop.Sum(     [self.tk, self.tk, 1, 1, 1, self.sz, self.sy, self.wx], axes=(1,)) * \
-                    sp.linop.Multiply([      1, self.tk, 1, 1, 1, self.sz, self.sy, self.wx], self.kernel)
-      self.W      = sp.linop.Wavelet([1, self.tk, 1, 1, 1, self.sz, self.sy, self.sx], axes=wavelet_axes)
+      self.K      = sp.linop.Reshape( [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx],              \
+                                      [         self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx])            * \
+                    sp.linop.Sum(     [self.tk, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(1,)) * \
+                    sp.linop.Multiply([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.kernel)
 
       self._construct_AHb()
 
-      # Only need to define grad f and prox g
-      #self.AHA = E
-      #proxg = sp.prox.L1Reg(A.ishape, lamda)
-        
-      #self.wav = np.zeros(A.ishape, np.complex)
-      #alpha = 1
+      self.res   = 0 * self.AHb
+      self.AHA   = self.W * self.E.H * self.R.H * self.Fx.H * self.Psf.H * self.Fyz.H * self.K * \
+                   self.Fyz * self.Psf * self.Fx * self.R * self.E * self.W.H
+      self.gradf = lambda x: self.AHA(x) - self.AHb
+      self.proxg = sp.prox.L1Reg(self.res.shape, lmb)
 
-      #def gradf(x):
-      # return A.H * (A * x - ksp)
-
-      #alg = sp.alg.GradientMethod(gradf, self.wav, alpha, proxg=proxg, max_iter=max_iter)
-      #super().__init__(alg)
+      alg = sp.alg.GradientMethod(self.gradf, self.res, self.alp, proxg=self.proxg, accelerate=True, tol=self.tol, max_iter=self.mit)
+      super().__init__(alg)
         
-    #def _output(self):
-    #    return self.W.H(self.wav)
+    def _output(self):
+        return self.W.H(self.res)
 
 #    def _summarize():
 #    def objective();

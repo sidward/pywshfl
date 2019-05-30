@@ -36,7 +36,7 @@ class WaveShuffling(sp.app.App):
         vec[t] = 1
         self.kernel[0, ky, kz, 0, 0, 0, t, :] = U.H(U(vec).squeeze() * mvec).squeeze()
 
-  #def _construct_AHb(rdr, tbl, phi):
+  #def _construct_AHb():
 
   def _broadcast_check(self, x):
     if(len(x.shape) == self.max_dims):
@@ -73,7 +73,7 @@ class WaveShuffling(sp.app.App):
       self.tk = self.phi.shape[6]
 
       self._construct_kernel()
-      print(self.kernel.shape)
+      #self._construct_AHb()
 
       self.E   = sp.linop.Multiply([self.sx, self.sy, self.sz, 1, 1, 1, self.tk, 1], self.mps)
       self.R   = sp.linop.Resize([self.wx, self.sy, self.sz, self.nc, 1, 1, self.tk, 1], \
@@ -81,7 +81,8 @@ class WaveShuffling(sp.app.App):
       self.Fx  = sp.linop.FFT([self.wx, self.sy, self.sz, self.nc, 1, 1, self.tk, 1], axes=(0,))
       self.Psf = sp.linop.Multiply([self.sx, self.sy, self.sz, self.nc, 1, 1, 1], self.psf)
       self.Fyz = sp.linop.FFT([self.wx, self.sy, self.sz, self.nc, 1, 1, self.tk, 1], axes=(1, 2))
-      self.K   = sp.linop.MatMul([self.wx, self.sy, self.sz, 1, 1, 1, self.tk, 1], self.kernel)
+      self.K   = sp.linop.Sum(     [self.wx, self.sy, self.sz, 1, 1, 1, self.tk, self.tk], axes=(6,)) * \
+                 sp.linop.Multiply([self.wx, self.sy, self.sz, 1, 1, 1, self.tk,       1], self.kernel)
       self.Wav = sp.linop.Wavelet([self.wx, self.sy, self.sz, 1, 1, 1, self.tk, 1], axes=(0, 1, 2))
 
       # Only need to define grad f and prox g

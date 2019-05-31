@@ -8,7 +8,7 @@ import sigpy.plot as pl
 class WaveShuffling(sp.app.App):
 
   def _construct_AHb(self):
-    x = self.xp.zeros((1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx)).astype(self.xp.complex)
+    x = self.xp.zeros((1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx)).astype(self.xp.complex64)
     PhiH = self.phi.squeeze().conj()
     if (len(PhiH.shape) == 1):
       PhiH = self.xp.reshape(PhiH, (1, PhiH.size))
@@ -19,9 +19,9 @@ class WaveShuffling(sp.app.App):
     self.AHb = self.S(self.E.H(self.R.H(self.Fx.H(self.Psf.H(self.Fyz.H(x))))))
 
   def _construct_kernel(self):
-    self.kernel = self.xp.zeros([self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1]).astype(self.xp.complex)
-    vec = self.xp.zeros((self.tk, 1)).astype(self.xp.complex)
-    mask = self.xp.zeros([self.sy, self.sz, self.tf]).astype(self.xp.complex)
+    self.kernel = self.xp.zeros([self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1]).astype(self.xp.complex64)
+    vec = self.xp.zeros((self.tk, 1)).astype(self.xp.complex64)
+    mask = self.xp.zeros([self.sy, self.sz, self.tf]).astype(self.xp.complex64)
 
     phi = self.phi.squeeze().T
     if (len(phi.shape) == 1):
@@ -46,6 +46,19 @@ class WaveShuffling(sp.app.App):
         vec[t] = 1
         self.kernel[:, t, 0, 0, 0, kz, ky, 0] = U.H(U(vec).squeeze() * mvec).squeeze()
 
+  def _prepare_caipishuffle(self):
+    mask = self.xp.zeros([self.sy, self.sz]).astype(self.xp.complex64)
+    for k in range(self.rdr.shape[0]):
+      [ky, kz, ec] = self.rdr[k, :]
+      mask[ky, kz] = 1
+    self.impres = sp.fourier.ifft(mask, axes=(0, 1), center=self.center)
+    self.scale = self.xp.max(self.xp.abs(self.impres.flatten()))
+    sorted_idx = self.xp.unravel_index(self.xp.argsort(self.xp.abs(self.impres).flatten()), [self.sy, self.sz])
+    self.shifted = [(int(sorted_idx[0][-(k+1)]), int(sorted_idx[1][-(k+1)])) \
+                      for k in range((self.sy * self.sz)//self.rdr.shape[0]) \
+                      if (self.xp.abs(self.impres[sorted_idx[0][-(k+1)], sorted_idx[1][-(k+1)]]) > 0.5 * self.scale)]
+    assert(len(self.shifted) > 0)
+
   def _broadcast_check(self, x):
     if(len(x.shape) == self.max_dims):
       return x
@@ -54,12 +67,13 @@ class WaveShuffling(sp.app.App):
       x = np.expand_dims(x, axis=0)
     return x
 
-  def __init__(self, rdr, tbl, mps, psf, phi, spr='W', cps=False, lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
-
+  def __init__(self, rdr, tbl, mps, psf, phi, spr='W', cps=False, cft=True, \
+                  lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
     self.cpu = -1
     self.max_dims = 8
     device = sp.Device(dev)
     self.xp = device.xp
+    self.center = cft
 
     with device:
       self.rdr = self.xp.array(rdr).astype(self.xp.int32)
@@ -83,10 +97,7 @@ class WaveShuffling(sp.app.App):
       self.tf = self.phi.shape[2]
       self.tk = self.phi.shape[1]
 
-
       assert(self.md == 1) # Until multiple ESPIRiT maps is implemented.
-
-      self._construct_kernel()
 
       self.S = None
       if (spr == 'W'):
@@ -100,20 +111,32 @@ class WaveShuffling(sp.app.App):
       self.E      = sp.linop.Multiply([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], self.mps)
       self.R      = sp.linop.Resize([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
                                     [1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.sx])
-      self.Fx     = sp.linop.FFT([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(7,))
+      self.Fx     = sp.linop.FFT([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(7,), \
+                      center=self.center)
       self.Psf    = sp.linop.Multiply([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.psf)
-      self.Fyz    = sp.linop.FFT([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(5, 6))
-      self.K      = sp.linop.Reshape( [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx],              \
+      self.Fyz    = sp.linop.FFT([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(5, 6), \
+                      center=self.center)
+
+      self.K = None
+      if not self.cps:
+        self._construct_kernel()
+        self.K    = sp.linop.Reshape( [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx],              \
                                       [         self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx])            * \
                     sp.linop.Sum(     [self.tk, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(1,)) * \
                     sp.linop.Multiply([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.kernel)
+      else:
+        self._prepare_caipishuffle()
+        self.K = sp.linop.Circshift(  [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
+                      self.shifted[0], axes=(5, 6))
+        for elm in self.shifted[1:]:
+          self.K = sp.linop.Circshift([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
+                      elm, axes=(5, 6)) + self.K
 
       self._construct_AHb()
-
       self.res   = 0 * self.AHb
       self.AHA   = self.S * self.E.H * self.R.H * self.Fx.H * self.Psf.H * self.Fyz.H * self.K * \
                    self.Fyz * self.Psf * self.Fx * self.R * self.E * self.S.H
-      self.mxevl = sp.app.MaxEig(self.AHA, self.xp.complex, device=dev).run()
+      self.mxevl = sp.app.MaxEig(self.AHA, self.xp.complex64, device=dev).run()
       self.alp   = self.alp/self.mxevl
       self.gradf = lambda x: self.AHA(x) - self.AHb
       self.proxg = sp.prox.L1Reg(self.res.shape, lmb)

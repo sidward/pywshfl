@@ -16,7 +16,7 @@ class WaveShuffling(sp.app.App):
       [ky, kz, ec] = self.rdr[k, :]
       for t in range(self.tk):
         x[0, t, 0, 0, :, kz, ky, :] = (self.tbl[:, :, k] * PhiH[t, ec]).T
-    self.AHb = self.W(self.E.H(self.R.H(self.Fx.H(self.Psf.H(self.Fyz.H(x))))))
+    self.AHb = self.S(self.E.H(self.R.H(self.Fx.H(self.Psf.H(self.Fyz.H(x))))))
 
   def _construct_kernel(self):
     self.kernel = self.xp.zeros([self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1]).astype(self.xp.complex)
@@ -54,7 +54,7 @@ class WaveShuffling(sp.app.App):
       x = np.expand_dims(x, axis=0)
     return x
 
-  def __init__(self, rdr, tbl, mps, psf, phi, cps=False, lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
+  def __init__(self, rdr, tbl, mps, psf, phi, spr='W', cps=False, lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
 
     self.cpu = -1
     self.max_dims = 8
@@ -83,13 +83,20 @@ class WaveShuffling(sp.app.App):
       self.tf = self.phi.shape[2]
       self.tk = self.phi.shape[1]
 
-      wavelet_axes = tuple([k for k in range(5, 8) if self.mps.shape[k] > 1])
 
       assert(self.md == 1) # Until multiple ESPIRiT maps is implemented.
 
       self._construct_kernel()
 
-      self.W      = sp.linop.Wavelet([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], axes=wavelet_axes)
+      self.S = None
+      if (spr == 'W'):
+        wavelet_axes = tuple([k for k in range(5, 8) if self.mps.shape[k] > 1])
+        self.S = sp.linop.Wavelet([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], axes=wavelet_axes)
+      elif (spr == 'T'):
+        self.S = sp.linop.FiniteDifference([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], axes=(5, 6, 7))
+      else:
+        self.S = sp.linop.Identity([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx])
+
       self.E      = sp.linop.Multiply([1, self.tk, 1, self.md, 1, self.sz, self.sy, self.sx], self.mps)
       self.R      = sp.linop.Resize([1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
                                     [1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.sx])
@@ -104,8 +111,8 @@ class WaveShuffling(sp.app.App):
       self._construct_AHb()
 
       self.res   = 0 * self.AHb
-      self.AHA   = self.W * self.E.H * self.R.H * self.Fx.H * self.Psf.H * self.Fyz.H * self.K * \
-                   self.Fyz * self.Psf * self.Fx * self.R * self.E * self.W.H
+      self.AHA   = self.S * self.E.H * self.R.H * self.Fx.H * self.Psf.H * self.Fyz.H * self.K * \
+                   self.Fyz * self.Psf * self.Fx * self.R * self.E * self.S.H
       self.mxevl = sp.app.MaxEig(self.AHA, self.xp.complex, device=dev).run()
       self.alp   = self.alp/self.mxevl
       self.gradf = lambda x: self.AHA(x) - self.AHb
@@ -115,4 +122,4 @@ class WaveShuffling(sp.app.App):
       super().__init__(alg)
         
     def _output(self):
-        return self.W.H(self.res)
+        return self.S.H(self.res)

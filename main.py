@@ -4,7 +4,6 @@
 
 import time
 import numpy as np
-#import matplotlib.pyplot as plt
 
 # -------------------------------------------------------------------------------------------------------------------------- #
 
@@ -13,6 +12,9 @@ import sigpy.mri  as mr
 import sigpy.plot as pl
 
 from wshfl import WaveShuffling
+
+import mkl
+mkl.set_num_threads(mkl.get_max_threads())
 
 # -------------------------------------------------------------------------------------------------------------------------- #
 
@@ -35,7 +37,5 @@ print("Reconstruction took " + str(end - start) + " seconds.")
 # -------------------------------------------------------------------------------------------------------------------------- #
 
 pl.ImagePlot(Waffle.S.H(Waffle.res).squeeze(), x=1, y=2, z=0, hide_axes=False)
-#plt.plot(sp.to_device(Waffle.impres.squeeze(), Waffle.cpu))
-#plt.show()
 
 # -------------------------------------------------------------------------------------------------------------------------- #

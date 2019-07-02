@@ -29,7 +29,7 @@ sparse_repr = None #'W' for Wavelet; 'T' for finite differences.
 # -------------------------------------------------------------------------------------------------------------------------- #
 
 start = time.time()
-Waffle = WaveShuffling(rdr, tbl, mps, psf, phi, cps=False, spr=sparse_repr, lmb=1e-6, mit=mit, dev=0)
+Waffle = WaveShuffling(rdr, tbl, mps, psf, phi, spr=sparse_repr, lmb=1e-6, mit=mit, dev=0)
 Waffle.run()
 end = time.time()
 print("Reconstruction took " + str(end - start) + " seconds.")

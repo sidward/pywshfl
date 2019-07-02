@@ -46,19 +46,6 @@ class WaveShuffling(sp.app.App):
         vec[t] = 1
         self.kernel[:, t, 0, 0, 0, kz, ky, 0] = U.H(U(vec).squeeze() * mvec).squeeze()
 
-  def _prepare_caipishuffle(self):
-    mask = self.xp.zeros([self.sy, self.sz]).astype(self.xp.complex64)
-    for k in range(self.rdr.shape[0]):
-      [ky, kz, ec] = self.rdr[k, :]
-      mask[ky, kz] = 1
-    self.impres = sp.fourier.ifft(mask, axes=(0, 1), center=self.center)
-    self.scale = self.xp.max(self.xp.abs(self.impres.flatten()))
-    sorted_idx = self.xp.unravel_index(self.xp.argsort(self.xp.abs(self.impres).flatten()), [self.sy, self.sz])
-    self.shifted = [(int(sorted_idx[0][-(k+1)]), int(sorted_idx[1][-(k+1)])) \
-                      for k in range((self.sy * self.sz)//self.rdr.shape[0]) \
-                      if (self.xp.abs(self.impres[sorted_idx[0][-(k+1)], sorted_idx[1][-(k+1)]]) > 0.5 * self.scale)]
-    assert(len(self.shifted) > 0)
-
   def _broadcast_check(self, x):
     if(len(x.shape) == self.max_dims):
       return x
@@ -67,7 +54,7 @@ class WaveShuffling(sp.app.App):
       x = np.expand_dims(x, axis=0)
     return x
 
-  def __init__(self, rdr, tbl, mps, psf, phi, spr='W', cps=False, cft=True, \
+  def __init__(self, rdr, tbl, mps, psf, phi, spr='W', cft=True, \
                   lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
     self.cpu = -1
     self.max_dims = 8
@@ -82,7 +69,6 @@ class WaveShuffling(sp.app.App):
       self.mps = self.xp.array(self._broadcast_check(mps))
       self.psf = self.xp.array(self._broadcast_check(psf))
       self.phi = self.xp.array(self._broadcast_check(phi))
-      self.cps = cps # Caipi-Shuffling flag.
       self.lmb = lmb # Lambda.
       self.mit = mit # Max-Iter
       self.alp = alp # Step size.
@@ -118,19 +104,11 @@ class WaveShuffling(sp.app.App):
                       center=self.center)
 
       self.K = None
-      if not self.cps:
-        self._construct_kernel()
-        self.K    = sp.linop.Reshape( [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx],              \
+      self._construct_kernel()
+      self.K    = sp.linop.Reshape( [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx],              \
                                       [         self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx])            * \
-                    sp.linop.Sum(     [self.tk, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(1,)) * \
-                    sp.linop.Multiply([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.kernel)
-      else:
-        self._prepare_caipishuffle()
-        self.K = sp.linop.Circshift(  [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
-                      self.shifted[0], axes=(5, 6))
-        for elm in self.shifted[1:]:
-          self.K = sp.linop.Circshift([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], \
-                      elm, axes=(5, 6)) + self.K
+                  sp.linop.Sum(     [self.tk, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(1,)) * \
+                  sp.linop.Multiply([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.kernel)
 
       self._construct_AHb()
       self.res   = 0 * self.AHb

@@ -13,18 +13,15 @@ import sigpy.plot as pl
 
 from wshfl import WaveShuffling
 
-import mkl
-mkl.set_num_threads(mkl.get_max_threads())
-
 # -------------------------------------------------------------------------------------------------------------------------- #
 
 rdr = np.load('data/rdr.npy')
 tbl = np.load('data/tbl.npy')
-mps = np.load('data/mps.npy')
-psf = np.load('data/psf.npy')
-phi = np.load('data/phi.npy')
+mps = np.load('data/mps.npy').T
+psf = np.load('data/psf.npy').T
+phi = np.load('data/phi.npy').T
 mit = 300
-sparse_repr = None #'W' for Wavelet; 'T' for finite differences.
+sparse_repr = 'W'
 
 # -------------------------------------------------------------------------------------------------------------------------- #
 
@@ -32,7 +29,7 @@ start = time.time()
 Waffle = WaveShuffling(rdr, tbl, mps, psf, phi, spr=sparse_repr, lmb=1e-6, mit=mit, dev=0)
 Waffle.run()
 end = time.time()
-print("Reconstruction took " + str(end - start) + " seconds.")
+print("Device used: " + str(Waffle.device) + ". Reconstruction took " + str(end - start) + " seconds.")
 
 # -------------------------------------------------------------------------------------------------------------------------- #
 

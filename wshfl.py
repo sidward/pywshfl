@@ -58,11 +58,11 @@ class WaveShuffling(sp.app.App):
                   lmb=1e-5, mit=30, alp=0.25, tol=1e-3, dev=-1):
     self.cpu = -1
     self.max_dims = 8
-    device = sp.Device(dev)
-    self.xp = device.xp
+    self.device = sp.Device(dev)
+    self.xp = self.device.xp
     self.center = cft
 
-    with device:
+    with self.device:
       self.rdr = self.xp.array(rdr).astype(self.xp.int32)
       self.tbl = self.xp.array(tbl)
       self.tbl = self.tbl/self.xp.max(self.xp.abs(self.tbl))

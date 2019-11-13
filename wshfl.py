@@ -5,11 +5,13 @@ import sigpy      as sp
 import sigpy.mri  as mr
 import sigpy.plot as pl
 
+from tqdm.auto import tqdm
+
 class WaveShuffling(sp.app.App):
 
   def _construct_AHb(self):
     x = self.xp.zeros((1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx)).astype(self.xp.complex64)
-    PhiH = self.phi.squeeze().conj()
+    PhiH = self.xp.reshape(self.phi.squeeze().conj(), [self.tk, self.tf])
     if (len(PhiH.shape) == 1):
       PhiH = self.xp.reshape(PhiH, (1, PhiH.size))
     for k in range(self.rdr.shape[0]):
@@ -19,18 +21,23 @@ class WaveShuffling(sp.app.App):
     self.AHb = self.S(self.E.H(self.R.H(self.Fx.H(self.Psf.H(self.Fyz.H(x))))))
 
   def _construct_kernel(self):
+
+    mask = self.xp.zeros([self.sy, self.sz, self.tf]).astype(self.xp.complex64)
+    for k in range(self.rdr.shape[0]):
+      [ky, kz, ec] = self.rdr[k, :]
+      mask[ky, kz, ec] = 1
+
+    if (self.phi.size == 1):
+      self.kernel = self.xp.reshape(mask.squeeze().T, [self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1])
+      return;
+
     self.kernel = self.xp.zeros([self.tk, self.tk, 1, 1, 1, self.sz, self.sy, 1]).astype(self.xp.complex64)
     vec = self.xp.zeros((self.tk, 1)).astype(self.xp.complex64)
-    mask = self.xp.zeros([self.sy, self.sz, self.tf]).astype(self.xp.complex64)
 
     phi = self.phi.squeeze().T
     if (len(phi.shape) == 1):
       phi = self.xp.reshape(phi, (phi.size, 1))
     U = sp.linop.MatMul(vec.shape, phi)
-
-    for k in range(self.rdr.shape[0]):
-      [ky, kz, ec] = self.rdr[k, :]
-      mask[ky, kz, ec] = 1
 
     flags = set() 
     for k in range(self.rdr.shape[0]):
@@ -83,6 +90,8 @@ class WaveShuffling(sp.app.App):
       self.tf = self.phi.shape[2]
       self.tk = self.phi.shape[1]
 
+      self.net_acceleration = (self.tf * self.sy * self.sz)/self.rdr.shape[0]
+
       assert(self.md == 1) # Until multiple ESPIRiT maps is implemented.
 
       self.S = None
@@ -121,6 +130,23 @@ class WaveShuffling(sp.app.App):
 
       alg = sp.alg.GradientMethod(self.gradf, self.res, self.alp, proxg=self.proxg, accelerate=True, tol=self.tol, max_iter=self.mit)
       super().__init__(alg)
-        
-    def _output(self):
-        return self.S.H(self.res)
+
+  def calculate_gfactor(self):
+    pbar = tqdm(total=np.prod(self.AHA.ishape), desc='g-factor', leave=True)
+    with self.device:
+      gfactor = self.xp.zeros(self.AHA.ishape)
+      vec = self.xp.zeros(self.AHA.ishape).astype(self.xp.complex64)
+      for t in range(self.AHA.ishape[1]):
+        for m in range(self.AHA.ishape[3]):
+          for z in range(self.AHA.ishape[5]):
+            for y in range(self.AHA.ishape[6]):
+              for x in range(self.AHA.ishape[7]):
+                vec[0, t, 0, m, 0, z, y, x] = 1
+                gfactor[0, t, 0, m, 0, z, y, x] = self.xp.real(self.xp.abs(self.AHA(vec)[0, t, 0, m, 0, z, y, x])) * (self.net_acceleration)**(0.25)
+                vec[0, t, 0, m, 0, z, y, x] = 0
+                pbar.update()
+                pbar.refresh()
+    return gfactor
+
+  def _output(self):
+    return self.S.H(self.res)

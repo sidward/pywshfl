@@ -5,8 +5,6 @@ import sigpy      as sp
 import sigpy.mri  as mr
 import sigpy.plot as pl
 
-from tqdm.auto import tqdm
-
 class WaveShuffling(sp.app.App):
 
   def _construct_AHb(self):
@@ -115,7 +113,7 @@ class WaveShuffling(sp.app.App):
       self.K = None
       self._construct_kernel()
       self.K    = sp.linop.Reshape( [      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx],              \
-                                      [         self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx])            * \
+                                    [         self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx])            * \
                   sp.linop.Sum(     [self.tk, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], axes=(1,)) * \
                   sp.linop.Multiply([      1, self.tk, 1, 1, self.nc, self.sz, self.sy, self.wx], self.kernel)
 
@@ -130,23 +128,6 @@ class WaveShuffling(sp.app.App):
 
       alg = sp.alg.GradientMethod(self.gradf, self.res, self.alp, proxg=self.proxg, accelerate=True, tol=self.tol, max_iter=self.mit)
       super().__init__(alg)
-
-  def calculate_gfactor(self):
-    pbar = tqdm(total=np.prod(self.AHA.ishape), desc='g-factor', leave=True)
-    with self.device:
-      gfactor = self.xp.zeros(self.AHA.ishape)
-      vec = self.xp.zeros(self.AHA.ishape).astype(self.xp.complex64)
-      for t in range(self.AHA.ishape[1]):
-        for m in range(self.AHA.ishape[3]):
-          for z in range(self.AHA.ishape[5]):
-            for y in range(self.AHA.ishape[6]):
-              for x in range(self.AHA.ishape[7]):
-                vec[0, t, 0, m, 0, z, y, x] = 1
-                gfactor[0, t, 0, m, 0, z, y, x] = self.xp.real(self.xp.abs(self.AHA(vec)[0, t, 0, m, 0, z, y, x])) * (self.net_acceleration)**(0.25)
-                vec[0, t, 0, m, 0, z, y, x] = 0
-                pbar.update()
-                pbar.refresh()
-    return gfactor
 
   def _output(self):
     return self.S.H(self.res)
